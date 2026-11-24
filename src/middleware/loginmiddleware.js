@@ -1,120 +1,35 @@
-// src/middleware/loginmiddleware.js
 const jwt = require("jsonwebtoken");
-const db = require("../../db");
+const { buscarUsuarioPorId } = require("../services/loginService");
 
-const authenticate = async (req, res, next) => {
-  try {
-    // 1. Obtener el token del header Authorization
-    const authHeader = req.headers.authorization;
-
-    if (!authHeader) {
-      return res.status(401).json({
-        success: false,
-        message: "Authorization header is missing",
-      });
-    }
-
-    // 2. Verificar formato del header
-    const tokenParts = authHeader.split(" ");
-    if (tokenParts.length !== 2 || tokenParts[0] !== "Bearer") {
-      return res.status(401).json({
-        success: false,
-        message: "Authorization header format should be: Bearer <token>",
-      });
-    }
-
-    const token = tokenParts[1];
-
-    // 3. Verificar que el token no esté vacío
-    if (!token || token === "null" || token === "undefined") {
-      return res.status(401).json({
-        success: false,
-        message: "Authentication token is missing",
-      });
-    }
-
-    // 4. Verificar y decodificar el token
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-
-    if (!decoded || !decoded.id) {
-      return res.status(401).json({
-        success: false,
-        message: "Invalid token payload",
-      });
-    }
-
-    // 5. Buscar el usuario en la base de datos
-    const userQuery = `
-      SELECT 
-        idAgente,
-        nombre,
-        apellido,
-        email,
-        telefono,
-        ci,
-        direccion,
-        especializacion,
-        rol,
-        estado,
-        idgrupo
-      FROM Agente 
-      WHERE idAgente = $1 AND estado = 'activo'
-    `;
-    
-    const userResult = await db.query(userQuery, [decoded.id]);
-    
-    if (userResult.rows.length === 0) {
-      return res.status(401).json({
-        success: false,
-        message: "User not found or inactive",
-      });
-    }
-
-    const user = userResult.rows[0];
-
-    // 6. Adjuntar información del usuario al request
-    req.user = user;
-
-    next();
-  } catch (error) {
-    console.error("Authentication error:", error);
-
-    let errorMessage = "Authentication failed";
-    if (error.name === "TokenExpiredError") {
-      errorMessage = "Token expired";
-    } else if (error.name === "JsonWebTokenError") {
-      errorMessage = "Invalid token format";
-    }
-
-    return res.status(401).json({
-      success: false,
-      message: errorMessage,
-      error: process.env.NODE_ENV === "development" ? error.message : undefined,
-    });
+async function authenticate(req, res, next) {
+  const authorization = req.headers.authorization;
+  if (!authorization || !/^Bearer\s+\S+$/i.test(authorization)) {
+    return res.status(401).json({ success: false, message: "No se proporcionó un token válido." });
   }
-};
-
-const authorize = (requiredRoles) => {
-  return (req, res, next) => {
-    if (!req.user) {
-      return res.status(401).json({
-        success: false,
-        message: "User not authenticated",
-      });
+  if (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 32) {
+    return next(new Error("JWT_SECRET no está configurado correctamente"));
+  }
+  try {
+    const token = authorization.replace(/^Bearer\s+/i, "");
+    const payload = jwt.verify(token, process.env.JWT_SECRET, {
+      algorithms: ["HS256"],
+      issuer: "armonia-api",
+    });
+    if (typeof payload !== "object" || !/^\d+$/.test(String(payload.sub ?? ""))) {
+      return res.status(401).json({ success: false, message: "Token de sesión inválido." });
     }
-
-    if (!requiredRoles.includes(req.user.rol)) {
-      return res.status(403).json({
-        success: false,
-        message: "Insufficient permissions",
-      });
+    const usuario = await buscarUsuarioPorId(String(payload.sub));
+    if (!usuario) {
+      return res.status(401).json({ success: false, message: "La cuenta ya no está disponible." });
     }
+    req.user = usuario;
+    return next();
+  } catch (error) {
+    if (error instanceof jwt.JsonWebTokenError || error instanceof jwt.TokenExpiredError) {
+      return res.status(401).json({ success: false, message: "La sesión es inválida o ha expirado." });
+    }
+    return next(error);
+  }
+}
 
-    next();
-  };
-};
-
-module.exports = {
-  authenticate,
-  authorize,
-};
+module.exports = { authenticate };
