@@ -1,0 +1,12 @@
+const service=require('../services/recursosService');
+const action=fn=>async(req,res,next)=>{try{await fn(req,res);}catch(e){if(typeof service.ErrorRecurso==='function'&&e instanceof service.ErrorRecurso)return res.status(e.status).json({success:false,message:e.message});return next(e);}};
+const ok=(res,data,status=200)=>res.status(status).json({success:true,data});
+const listar=action(async(req,res)=>ok(res,await service.listar()));
+const categorias=action(async(req,res)=>ok(res,await service.categorias()));
+const obtener=action(async(req,res)=>ok(res,await service.obtener(req.params.id)));
+const crear=action(async(req,res)=>ok(res,await service.guardar(req.body),201));
+const actualizar=action(async(req,res)=>ok(res,await service.guardar(req.body,req.params.id)));
+const eliminar=action(async(req,res)=>{await service.eliminar(req.params.id);ok(res,null);});
+const imagen=action(async(req,res)=>{const f=await service.imagen(req.params.id);if(!f)return res.status(404).json({success:false,message:'Imagen no disponible.'});res.set('X-Content-Type-Options','nosniff');res.type(f.mime).send(f.archivo);});
+const pdf=action(async(req,res)=>{const f=await service.pdf(req.params.id);if(!f)return res.status(404).json({success:false,message:'PDF no disponible.'});res.set('X-Content-Type-Options','nosniff');res.attachment(f.nombre_archivo.replace(/[/\\\x00-\x1f\x7f]/g,'_')).type('application/pdf').send(f.archivo);});
+module.exports={listar,categorias,obtener,crear,actualizar,eliminar,imagen,pdf};
