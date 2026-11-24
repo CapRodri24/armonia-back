@@ -3,6 +3,7 @@ function error(e,res,next){if(typeof service.ErrorNosotros==='function'&&e insta
 const handler=(fn,status=200)=>async(req,res,next)=>{try{return res.status(status).json({success:true,data:await fn(req)});}catch(e){return error(e,res,next);}};
 const listar=handler(()=>service.listar()),cargos=handler(()=>service.cargos()),categorias=handler(()=>service.categorias());
 const crear=handler(r=>service.guardar(r.body),201),actualizar=handler(r=>service.guardar(r.body,r.params.id)),eliminar=handler(async r=>{await service.eliminar(r.params.id);return null;});
+const reordenar=handler(async r=>{await service.reordenar(r.body?.ids);return null;});
 const crearCargo=handler(r=>service.guardarCargo(r.body),201),actualizarCargo=handler(r=>service.guardarCargo(r.body,r.params.id)),eliminarCargo=handler(async r=>{await service.eliminarCargo(r.params.id);return null;});
 async function imagen(req,res,next){try{const x=await service.imagen(req.params.id);if(!x)return res.sendStatus(404);res.set("Content-Type",x.mime);res.set("X-Content-Type-Options","nosniff");res.set("Cache-Control","public, max-age=300");return res.send(x.archivo);}catch(e){return error(e,res,next);}}
-module.exports={listar,cargos,categorias,crear,actualizar,eliminar,crearCargo,actualizarCargo,eliminarCargo,imagen};
+module.exports={reordenar,listar,cargos,categorias,crear,actualizar,eliminar,crearCargo,actualizarCargo,eliminarCargo,imagen};

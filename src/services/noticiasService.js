@@ -21,6 +21,20 @@ function texto(value) {
   return typeof value === "string" ? value.trim() : "";
 }
 
+// Fecha de la noticia en formato YYYY-MM-DD. Si no llega, se usa la fecha actual.
+function validarFecha(value) {
+  const fecha = texto(value);
+  if (!fecha) return null;
+  const partes = /^(\d{4})-(\d{2})-(\d{2})$/.exec(fecha);
+  if (!partes) throw new ErrorNoticia("Fecha de la noticia inválida.");
+  const [anio, mes, dia] = partes.slice(1).map(Number);
+  const d = new Date(Date.UTC(anio, mes - 1, dia));
+  if (anio < 1900 || anio > 2100 || d.getUTCMonth() !== mes - 1 || d.getUTCDate() !== dia) {
+    throw new ErrorNoticia("Fecha de la noticia inválida.");
+  }
+  return fecha;
+}
+
 function validarImagen(imagen) {
   if (!imagen || typeof imagen !== "object" || Array.isArray(imagen)) throw new ErrorNoticia("Falta una imagen.");
   if (imagen.id_imagen !== undefined && imagen.id_imagen !== null) {
@@ -81,7 +95,8 @@ function validarEntrada(data) {
     }
     return b;
   });
-  return { titulo_es, titulo_en, id_programa, id_categoria_noticia, bloques };
+  const fecha_publicacion = validarFecha(data.fecha_publicacion);
+  return { titulo_es, titulo_en, fecha_publicacion, id_programa, id_categoria_noticia, bloques };
 }
 
 async function guardarImagen(client, imagen) {
@@ -206,8 +221,11 @@ async function crear(data) {
     await client.query("BEGIN");
     await validarAsociaciones(client, input);
     const contenido = await client.query(
-      "INSERT INTO contenido_editorial (tipo,titulo_es,titulo_en) VALUES ('noticia',$1,$2) RETURNING id_contenido",
-      [input.titulo_es, input.titulo_en]
+      // La fecha elegida se combina con la hora actual de La Paz para mantener el orden de publicación.
+      `INSERT INTO contenido_editorial (tipo,titulo_es,titulo_en,fecha_publicacion)
+       VALUES ('noticia',$1,$2,COALESCE($3::date + TIMEZONE('America/La_Paz', NOW())::time, TIMEZONE('America/La_Paz', NOW())))
+       RETURNING id_contenido`,
+      [input.titulo_es, input.titulo_en, input.fecha_publicacion]
     );
     const idContenido = contenido.rows[0].id_contenido;
     const noticia = await client.query(
@@ -231,7 +249,11 @@ async function actualizar(id, data) {
     if (!existing.rowCount) throw new ErrorNoticia("Noticia no encontrada.", 404);
     const idContenido = existing.rows[0].id_contenido;
     await validarAsociaciones(client, input);
-    await client.query("UPDATE contenido_editorial SET titulo_es=$1,titulo_en=$2 WHERE id_contenido=$3", [input.titulo_es, input.titulo_en, idContenido]);
+    // Cambia solo el día y conserva la hora original de publicación.
+    await client.query(
+      "UPDATE contenido_editorial SET titulo_es=$1,titulo_en=$2,fecha_publicacion=COALESCE($4::date + fecha_publicacion::time, fecha_publicacion) WHERE id_contenido=$3",
+      [input.titulo_es, input.titulo_en, idContenido, input.fecha_publicacion]
+    );
     await client.query("UPDATE noticia SET id_programa=$1,id_categoria_noticia=$2 WHERE id_noticia=$3", [input.id_programa,input.id_categoria_noticia,id]);
     await client.query("DELETE FROM bloque_editorial WHERE id_contenido=$1", [idContenido]);
     await guardarBloques(client, idContenido, input.bloques);
