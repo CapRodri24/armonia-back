@@ -1,95 +1,63 @@
-const { Pool } = require('pg');
-const bcrypt = require('bcrypt');
+const bcrypt = require('bcryptjs');
+const { pool } = require('./db');
 
-// Configuración de la conexión a la base de datos
-const pool = new Pool({
-  user: 'postgres',
-  host: 'localhost',
-  database: 'Neoled',
-  password: 'Univalle',
-  port: 5432,
-});
-
-async function query(text, params) {
-  const client = await pool.connect();
-  try {
-    const result = await client.query(text, params);
-    return result;
-  } finally {
-    client.release();
-  }
-}
+const COSTO = 10;
+const BCRYPT = /^\$2[aby]\$(?:0[4-9]|[12][0-9]|3[01])\$[./A-Za-z0-9]{53}$/;
 
 async function hashAllPasswords() {
+  let client;
+  let transaccion = false;
   try {
-    console.log("Iniciando proceso de hashing de contraseñas...");
-
-    // Obtener todos los usuarios de la tabla usuarios
-    const usuariosResult = await query(`
-      SELECT idusuario, usuario, contraseña 
-      FROM usuarios 
-      WHERE contraseña NOT LIKE '$2b$%' OR contraseña IS NULL
+    client = await pool.connect();
+    await client.query('BEGIN');
+    transaccion = true;
+    const { rows } = await client.query(`
+      SELECT id_usuario, contrasena_hash
+      FROM usuario
+      ORDER BY id_usuario
+      FOR UPDATE
     `);
-
-    console.log(`Encontrados ${usuariosResult.rows.length} usuarios para actualizar`);
-
-    for (const user of usuariosResult.rows) {
-      // Si no tiene contraseña, usar el username como contraseña por defecto
-      const plainPassword = user.contraseña || user.usuario;
-      const hashedPassword = await bcrypt.hash(plainPassword, 10);
-      
-      await query("UPDATE usuarios SET contraseña = $1 WHERE idusuario = $2", [
-        hashedPassword,
-        user.idusuario,
-      ]);
-      console.log(`Actualizado usuario ID: ${user.idusuario} (${user.usuario})`);
-    }
-
-    // Verificar si existe la tabla usuarios_clientes
-    try {
-      const tableExists = await query(`
-        SELECT EXISTS (
-          SELECT FROM information_schema.tables 
-          WHERE table_schema = 'public' 
-          AND table_name = 'usuarios_clientes'
-        )
-      `);
-
-      if (tableExists.rows[0].exists) {
-        // Obtener todos los usuarios de la tabla usuarios_clientes
-        const clientesResult = await query(`
-          SELECT idusuario, username, password_hash 
-          FROM usuarios_clientes 
-          WHERE password_hash NOT LIKE '$2b$%' OR password_hash IS NULL
-        `);
-
-        console.log(`Encontrados ${clientesResult.rows.length} usuarios clientes para actualizar`);
-
-        for (const user of clientesResult.rows) {
-          // Si no tiene contraseña, usar el username como contraseña por defecto
-          const plainPassword = user.password_hash || user.username;
-          const hashedPassword = await bcrypt.hash(plainPassword, 10);
-          
-          await query("UPDATE usuarios_clientes SET password_hash = $1 WHERE idusuario = $2", [
-            hashedPassword,
-            user.idusuario,
-          ]);
-          console.log(`Actualizado usuario cliente ID: ${user.idusuario} (${user.username})`);
-        }
-      } else {
-        console.log("La tabla 'usuarios_clientes' no existe, omitiendo...");
+    let actualizados = 0;
+    let omitidos = 0;
+    for (const registro of rows) {
+      const original = registro.contrasena_hash;
+      if (typeof original !== 'string' || !original.trim()) {
+        throw new Error(`Contraseña vacía en usuario ID ${registro.id_usuario}.`);
       }
-    } catch (error) {
-      console.log("La tabla 'usuarios_clientes' no existe o tiene errores, omitiendo...");
+      if (BCRYPT.test(original)) {
+        omitidos++;
+        continue;
+      }
+      if (/^\$2/.test(original.trim())) {
+        throw new Error(`Posible hash bcrypt inválido en usuario ID ${registro.id_usuario}. Revísalo antes de continuar.`);
+      }
+      if (Buffer.byteLength(original, 'utf8') > 72) {
+        throw new Error(`Contraseña superior a 72 bytes en usuario ID ${registro.id_usuario}.`);
+      }
+      const hash = await bcrypt.hash(original, COSTO);
+      await client.query(
+        'UPDATE usuario SET contrasena_hash = $1 WHERE id_usuario = $2',
+        [hash, registro.id_usuario]
+      );
+      actualizados++;
     }
-
-    console.log("Proceso de hashing completado exitosamente");
+    await client.query('COMMIT');
+    transaccion = false;
+    console.log(`Proceso completado. Actualizados: ${actualizados}. Hashes existentes conservados: ${omitidos}.`);
   } catch (error) {
-    console.error("Error al hashear contraseñas:", error);
+    if (client && transaccion) {
+      try { await client.query('ROLLBACK'); }
+      catch { console.error('No se pudo confirmar la reversión de la transacción.'); }
+    }
+    console.error('No se completó el proceso:', error.message);
+    process.exitCode = 1;
   } finally {
+    if (client) client.release();
     await pool.end();
-    process.exit();
   }
 }
 
-hashAllPasswords();
+hashAllPasswords().catch(() => {
+  console.error('Error inesperado al cerrar el proceso.');
+  process.exitCode = 1;
+});
