@@ -38,7 +38,7 @@ function validarFecha(value) {
 function validarImagen(imagen) {
   if (!imagen || typeof imagen !== "object" || Array.isArray(imagen)) throw new ErrorNoticia("Falta una imagen.");
   if (imagen.id_imagen !== undefined && imagen.id_imagen !== null) {
-    return { id_imagen: validarId(imagen.id_imagen), alt_es: texto(imagen.alt_es), alt_en: texto(imagen.alt_en), descripcion_es: texto(imagen.descripcion_es), descripcion_en: texto(imagen.descripcion_en), credito: texto(imagen.credito) };
+    return { id_imagen: validarId(imagen.id_imagen), credito: texto(imagen.credito) };
   }
   if (typeof imagen.archivo !== "string") throw new ErrorNoticia("Adjunta un archivo de imagen válido.");
   const match = /^data:(image\/(?:jpeg|png|webp|gif));base64,([A-Za-z0-9+/]+={0,2})$/.exec(imagen.archivo);
@@ -53,8 +53,6 @@ function validarImagen(imagen) {
   return {
     archivo: bytes, mime: match[1],
     nombre_archivo: texto(imagen.nombre_archivo).slice(0, 255) || "imagen",
-    alt_es: texto(imagen.alt_es), alt_en: texto(imagen.alt_en),
-    descripcion_es: texto(imagen.descripcion_es), descripcion_en: texto(imagen.descripcion_en),
     credito: texto(imagen.credito)
   };
 }
@@ -79,6 +77,7 @@ function validarEntrada(data) {
       throw new ErrorNoticia("Los párrafos y subtítulos deben incluir ambos idiomas.");
     }
     if (["enlace", "video"].includes(b.tipo)) {
+      b.texto_es = ""; b.texto_en = "";
       let uri;
       try { uri = new URL(b.url); } catch { throw new ErrorNoticia("URL de bloque inválida."); }
       if (!["https:", "http:"].includes(uri.protocol)) throw new ErrorNoticia("Solo se admiten enlaces HTTP o HTTPS.");
@@ -96,7 +95,9 @@ function validarEntrada(data) {
     return b;
   });
   const fecha_publicacion = validarFecha(data.fecha_publicacion);
-  return { titulo_es, titulo_en, fecha_publicacion, id_programa, id_categoria_noticia, bloques };
+  const autor = texto(data.autor);
+  if (autor.length > 200) throw new ErrorNoticia("El nombre del autor admite como máximo 200 caracteres.");
+  return { titulo_es, titulo_en, fecha_publicacion, autor, id_programa, id_categoria_noticia, bloques };
 }
 
 async function guardarImagen(client, imagen) {
@@ -104,16 +105,15 @@ async function guardarImagen(client, imagen) {
     const result = await client.query("SELECT id_imagen FROM imagen WHERE id_imagen = $1", [imagen.id_imagen]);
     if (!result.rowCount) throw new ErrorNoticia("Una de las imágenes ya no existe.");
     await client.query(
-      "UPDATE imagen SET alt_es=$1, alt_en=$2, descripcion_es=$3, descripcion_en=$4, credito=$5 WHERE id_imagen=$6",
-      [imagen.alt_es, imagen.alt_en, imagen.descripcion_es, imagen.descripcion_en, imagen.credito, imagen.id_imagen]
+      "UPDATE imagen SET credito=$1 WHERE id_imagen=$2",
+      [imagen.credito, imagen.id_imagen]
     );
     return imagen.id_imagen;
   }
   const result = await client.query(
-    `INSERT INTO imagen (archivo, nombre_archivo, mime, alt_es, alt_en, descripcion_es, descripcion_en, credito)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id_imagen`,
-    [imagen.archivo, imagen.nombre_archivo, imagen.mime, imagen.alt_es, imagen.alt_en,
-      imagen.descripcion_es, imagen.descripcion_en, imagen.credito]
+    `INSERT INTO imagen (archivo, nombre_archivo, mime, credito)
+     VALUES ($1,$2,$3,$4) RETURNING id_imagen`,
+    [imagen.archivo, imagen.nombre_archivo, imagen.mime, imagen.credito]
   );
   return String(result.rows[0].id_imagen);
 }
@@ -167,7 +167,7 @@ async function obtener(id) {
            COALESCE(pc.titulo_es,'') AS programa_titulo_es,
            COALESCE(l.color,'#2381C4') AS color,
            c.id_contenido::text AS id_contenido, c.titulo_es, c.titulo_en,
-           to_char(c.fecha_publicacion, 'YYYY-MM-DD"T"HH24:MI:SS') AS fecha_publicacion FROM noticia n JOIN contenido_editorial c ON c.id_contenido=n.id_contenido
+           to_char(c.fecha_publicacion, 'YYYY-MM-DD"T"HH24:MI:SS') AS fecha_publicacion, COALESCE(n.autor,'') AS autor FROM noticia n JOIN contenido_editorial c ON c.id_contenido=n.id_contenido
     JOIN categoria_noticia cat ON cat.id_categoria_noticia=n.id_categoria_noticia
     LEFT JOIN programa p ON p.id_programa=n.id_programa
     LEFT JOIN contenido_editorial pc ON pc.id_contenido=p.id_contenido
@@ -197,12 +197,11 @@ async function obtener(id) {
 
 async function obtenerImagen(client, id) {
   const result = await client.query(
-    "SELECT id_imagen::text AS id_imagen, encode(archivo,'base64') AS base64, mime, nombre_archivo, alt_es, alt_en, descripcion_es, descripcion_en, credito FROM imagen WHERE id_imagen=$1", [id]);
+    "SELECT id_imagen::text AS id_imagen, encode(archivo,'base64') AS base64, mime, nombre_archivo, credito FROM imagen WHERE id_imagen=$1", [id]);
   if (!result.rowCount) throw new ErrorNoticia("Imagen no encontrada.", 404);
   const img = result.rows[0];
   return { id_imagen: img.id_imagen, archivo: `data:${img.mime};base64,${img.base64.replace(/\s/g, "")}`,
-    nombre_archivo: img.nombre_archivo, alt_es: img.alt_es, alt_en: img.alt_en,
-    descripcion_es: img.descripcion_es, descripcion_en: img.descripcion_en, credito: img.credito };
+    nombre_archivo: img.nombre_archivo, credito: img.credito };
 }
 
 async function validarAsociaciones(client, input) {
@@ -229,8 +228,8 @@ async function crear(data) {
     );
     const idContenido = contenido.rows[0].id_contenido;
     const noticia = await client.query(
-      "INSERT INTO noticia (id_contenido,id_programa,id_categoria_noticia) VALUES ($1,$2,$3) RETURNING id_noticia::text AS id_noticia",
-      [idContenido, input.id_programa, input.id_categoria_noticia]
+      "INSERT INTO noticia (id_contenido,id_programa,id_categoria_noticia,autor) VALUES ($1,$2,$3,$4) RETURNING id_noticia::text AS id_noticia",
+      [idContenido, input.id_programa, input.id_categoria_noticia, input.autor || null]
     );
     await guardarBloques(client, idContenido, input.bloques);
     await client.query("COMMIT");
@@ -254,7 +253,7 @@ async function actualizar(id, data) {
       "UPDATE contenido_editorial SET titulo_es=$1,titulo_en=$2,fecha_publicacion=COALESCE($4::date + fecha_publicacion::time, fecha_publicacion) WHERE id_contenido=$3",
       [input.titulo_es, input.titulo_en, idContenido, input.fecha_publicacion]
     );
-    await client.query("UPDATE noticia SET id_programa=$1,id_categoria_noticia=$2 WHERE id_noticia=$3", [input.id_programa,input.id_categoria_noticia,id]);
+    await client.query("UPDATE noticia SET id_programa=$1,id_categoria_noticia=$2,autor=$3 WHERE id_noticia=$4", [input.id_programa,input.id_categoria_noticia,input.autor || null,id]);
     await client.query("DELETE FROM bloque_editorial WHERE id_contenido=$1", [idContenido]);
     await guardarBloques(client, idContenido, input.bloques);
     await client.query("COMMIT");

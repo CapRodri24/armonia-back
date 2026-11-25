@@ -67,7 +67,7 @@ async function obtener(id) {
   const fotos = await query(`
     SELECT ci.id_bloque::text AS id_bloque, ci.id_imagen::text AS id_imagen,
            ci.orden, ci.pie_es, ci.pie_en,
-           i.alt_es, i.alt_en, i.descripcion_es, i.descripcion_en, i.credito
+           i.credito
     FROM carrusel_imagen ci
     JOIN bloque_editorial b ON b.id_bloque = ci.id_bloque
     JOIN imagen i ON i.id_imagen = ci.id_imagen
@@ -75,8 +75,7 @@ async function obtener(id) {
     ORDER BY ci.id_bloque, ci.orden
   `, [programa.id_contenido]);
   const imagenes = await query(`
-    SELECT b.id_bloque::text AS id_bloque, i.alt_es, i.alt_en,
-           i.descripcion_es, i.descripcion_en, i.credito
+    SELECT b.id_bloque::text AS id_bloque, i.credito
     FROM bloque_editorial b JOIN imagen i ON i.id_imagen = b.id_imagen
     WHERE b.id_contenido = $1 AND b.tipo = 'imagen'
   `, [programa.id_contenido]);
@@ -86,8 +85,6 @@ async function obtener(id) {
     if (!carruseles.has(foto.id_bloque)) carruseles.set(foto.id_bloque, []);
     carruseles.get(foto.id_bloque).push({
       id_imagen: foto.id_imagen,
-      alt_es: foto.alt_es, alt_en: foto.alt_en,
-      descripcion_es: foto.descripcion_es, descripcion_en: foto.descripcion_en,
       credito: foto.credito, pie_es: foto.pie_es, pie_en: foto.pie_en,
     });
   }

@@ -24,7 +24,7 @@ function texto(value) {
 function validarImagen(imagen) {
   if (!imagen || typeof imagen !== "object" || Array.isArray(imagen)) throw new ErrorPrograma("Falta una imagen.");
   if (imagen.id_imagen !== undefined && imagen.id_imagen !== null) {
-    return { id_imagen: validarId(imagen.id_imagen), alt_es: texto(imagen.alt_es), alt_en: texto(imagen.alt_en), descripcion_es: texto(imagen.descripcion_es), descripcion_en: texto(imagen.descripcion_en), credito: texto(imagen.credito) };
+    return { id_imagen: validarId(imagen.id_imagen), credito: texto(imagen.credito) };
   }
   if (typeof imagen.archivo !== "string") throw new ErrorPrograma("Adjunta un archivo de imagen válido.");
   const match = /^data:(image\/(?:jpeg|png|webp|gif));base64,([A-Za-z0-9+/]+={0,2})$/.exec(imagen.archivo);
@@ -39,8 +39,6 @@ function validarImagen(imagen) {
   return {
     archivo: bytes, mime: match[1],
     nombre_archivo: texto(imagen.nombre_archivo).slice(0, 255) || "imagen",
-    alt_es: texto(imagen.alt_es), alt_en: texto(imagen.alt_en),
-    descripcion_es: texto(imagen.descripcion_es), descripcion_en: texto(imagen.descripcion_en),
     credito: texto(imagen.credito)
   };
 }
@@ -63,6 +61,7 @@ function validarEntrada(data) {
       throw new ErrorPrograma("Los párrafos y subtítulos deben incluir ambos idiomas.");
     }
     if (["enlace", "video"].includes(b.tipo)) {
+      b.texto_es = ""; b.texto_en = "";
       let uri;
       try { uri = new URL(b.url); } catch { throw new ErrorPrograma("URL de bloque inválida."); }
       if (!["https:", "http:"].includes(uri.protocol)) throw new ErrorPrograma("Solo se admiten enlaces HTTP o HTTPS.");
@@ -87,16 +86,15 @@ async function guardarImagen(client, imagen) {
     const result = await client.query("SELECT id_imagen FROM imagen WHERE id_imagen = $1", [imagen.id_imagen]);
     if (!result.rowCount) throw new ErrorPrograma("Una de las imágenes ya no existe.");
     await client.query(
-      "UPDATE imagen SET alt_es=$1, alt_en=$2, descripcion_es=$3, descripcion_en=$4, credito=$5 WHERE id_imagen=$6",
-      [imagen.alt_es, imagen.alt_en, imagen.descripcion_es, imagen.descripcion_en, imagen.credito, imagen.id_imagen]
+      "UPDATE imagen SET credito=$1 WHERE id_imagen=$2",
+      [imagen.credito, imagen.id_imagen]
     );
     return imagen.id_imagen;
   }
   const result = await client.query(
-    `INSERT INTO imagen (archivo, nombre_archivo, mime, alt_es, alt_en, descripcion_es, descripcion_en, credito)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id_imagen`,
-    [imagen.archivo, imagen.nombre_archivo, imagen.mime, imagen.alt_es, imagen.alt_en,
-      imagen.descripcion_es, imagen.descripcion_en, imagen.credito]
+    `INSERT INTO imagen (archivo, nombre_archivo, mime, credito)
+     VALUES ($1,$2,$3,$4) RETURNING id_imagen`,
+    [imagen.archivo, imagen.nombre_archivo, imagen.mime, imagen.credito]
   );
   return String(result.rows[0].id_imagen);
 }
@@ -173,12 +171,11 @@ async function obtener(id) {
 
 async function obtenerImagen(client, id) {
   const result = await client.query(
-    "SELECT id_imagen::text AS id_imagen, encode(archivo,'base64') AS base64, mime, nombre_archivo, alt_es, alt_en, descripcion_es, descripcion_en, credito FROM imagen WHERE id_imagen=$1", [id]);
+    "SELECT id_imagen::text AS id_imagen, encode(archivo,'base64') AS base64, mime, nombre_archivo, credito FROM imagen WHERE id_imagen=$1", [id]);
   if (!result.rowCount) throw new ErrorPrograma("Imagen no encontrada.", 404);
   const img = result.rows[0];
   return { id_imagen: img.id_imagen, archivo: `data:${img.mime};base64,${img.base64.replace(/\s/g, "")}`,
-    nombre_archivo: img.nombre_archivo, alt_es: img.alt_es, alt_en: img.alt_en,
-    descripcion_es: img.descripcion_es, descripcion_en: img.descripcion_en, credito: img.credito };
+    nombre_archivo: img.nombre_archivo, credito: img.credito };
 }
 
 async function validarPaisaje(client, id) {
