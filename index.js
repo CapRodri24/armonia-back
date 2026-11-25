@@ -18,7 +18,7 @@ const dashboardRoutes = require("./src/routes/dashboardRoutes");
 const app = express();
 // En desarrollo funciona sin .env del frontend. En producción configurar
 // FRONTEND_URL en el entorno del backend con el origen real de la web.
-const allowedOrigins = ["http://localhost:8080", ...(process.env.FRONTEND_URL ? [process.env.FRONTEND_URL.replace(/\/$/, "")] : [])];
+const allowedOrigins = ["http://localhost:8080", "https://armoniabo.netlify.app", "https://armoniabolivia.org", "https://www.armoniabolivia.org", ...(process.env.FRONTEND_URL ? [process.env.FRONTEND_URL.replace(/\/$/, "")] : [])];
 const corsOptions = {
   origin(origin, callback) {
     if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
