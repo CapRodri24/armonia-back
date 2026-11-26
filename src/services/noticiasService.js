@@ -1,4 +1,5 @@
 const { pool } = require("../../db");
+const { validarPdf, guardarPdf, obtenerPdf, limpiarPdfHuerfanos } = require("../utils/pdfBloques");
 
 class ErrorNoticia extends Error {
   constructor(message, status = 400) {
@@ -8,7 +9,7 @@ class ErrorNoticia extends Error {
 }
 
 const mimePermitidos = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
-const tipos = new Set(["parrafo", "subtitulo", "imagen", "carrusel", "enlace", "video"]);
+const tipos = new Set(["parrafo", "subtitulo", "imagen", "carrusel", "enlace", "video", "pdf"]);
 const MAX_IMAGEN = 5 * 1024 * 1024;
 
 function validarId(value) {
@@ -86,6 +87,10 @@ function validarEntrada(data) {
       }
     }
     if (b.tipo === "imagen") b.imagen = validarImagen(bloque.imagen);
+    if (b.tipo === "pdf") {
+      b.texto_es = ""; b.texto_en = ""; b.url = ""; b.pie_es = ""; b.pie_en = "";
+      b.pdf = validarPdf(bloque.pdf, ErrorNoticia);
+    }
     if (b.tipo === "carrusel") {
       if (!Array.isArray(bloque.imagenes) || bloque.imagenes.length < 2 || bloque.imagenes.length > 30) {
         throw new ErrorNoticia("Un carrusel debe contener entre 2 y 30 imágenes.");
@@ -119,14 +124,20 @@ async function guardarImagen(client, imagen) {
 }
 
 async function guardarBloques(client, idContenido, bloques) {
+  await insertarBloques(client, idContenido, bloques);
+  await limpiarPdfHuerfanos(client);
+}
+
+async function insertarBloques(client, idContenido, bloques) {
   for (let i = 0; i < bloques.length; i++) {
     const b = bloques[i];
     const idImagen = b.tipo === "imagen" ? await guardarImagen(client, b.imagen) : null;
+    const idPdf = b.tipo === "pdf" ? await guardarPdf(client, b.pdf, ErrorNoticia) : null;
     const result = await client.query(
-      `INSERT INTO bloque_editorial (id_contenido, tipo, orden, texto_es, texto_en, id_imagen, pie_es, pie_en, url)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id_bloque`,
+      `INSERT INTO bloque_editorial (id_contenido, tipo, orden, texto_es, texto_en, id_imagen, pie_es, pie_en, url, id_archivo_pdf)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id_bloque`,
       [idContenido, b.tipo, i + 1, b.texto_es || null, b.texto_en || null, idImagen,
-        b.pie_es || null, b.pie_en || null, b.url || null]
+        b.pie_es || null, b.pie_en || null, b.url || null, idPdf]
     );
     if (b.tipo === "carrusel") {
       for (let j = 0; j < b.imagenes.length; j++) {
@@ -176,11 +187,13 @@ async function obtener(id) {
     const landscape = result.rows[0];
     const blocks = await client.query(`
       SELECT b.id_bloque::text AS id_bloque, b.tipo, b.orden, b.texto_es, b.texto_en,
-             b.pie_es, b.pie_en, b.url, b.id_imagen::text AS id_imagen
+             b.pie_es, b.pie_en, b.url, b.id_imagen::text AS id_imagen,
+             b.id_archivo_pdf::text AS id_archivo_pdf
       FROM bloque_editorial b WHERE b.id_contenido=$1 ORDER BY b.orden`, [landscape.id_contenido]);
     const resultBlocks = [];
     for (const b of blocks.rows) {
       if (b.tipo === "imagen") b.imagen = await obtenerImagen(client, b.id_imagen);
+      if (b.tipo === "pdf") b.pdf = await obtenerPdf(client, b.id_archivo_pdf);
       if (b.tipo === "carrusel") {
         const fotos = await client.query(
           "SELECT id_imagen::text AS id_imagen FROM carrusel_imagen WHERE id_bloque=$1 ORDER BY orden", [b.id_bloque]);
@@ -270,6 +283,7 @@ async function eliminar(id) {
     const existing = await client.query("SELECT id_contenido FROM noticia WHERE id_noticia=$1 FOR UPDATE", [id]);
     if (!existing.rowCount) throw new ErrorNoticia("Noticia no encontrada.", 404);
     await client.query("DELETE FROM contenido_editorial WHERE id_contenido=$1", [existing.rows[0].id_contenido]);
+    await limpiarPdfHuerfanos(client);
     await client.query("COMMIT");
   } catch (error) { await client.query("ROLLBACK"); throw error; }
   finally { client.release(); }

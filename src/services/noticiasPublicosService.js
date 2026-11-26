@@ -57,8 +57,11 @@ async function obtener(id) {
   const bloques = await query(`
     SELECT b.id_bloque::text AS id_bloque, b.tipo, b.orden,
            b.texto_es, b.texto_en, b.pie_es, b.pie_en,
-           b.url, b.id_imagen::text AS id_imagen
+           b.url, b.id_imagen::text AS id_imagen,
+           b.id_archivo_pdf::text AS id_archivo_pdf,
+           ap.nombre_archivo AS pdf_nombre, ap.tamano_bytes::integer AS pdf_tamano
     FROM bloque_editorial b
+    LEFT JOIN archivo_pdf ap ON ap.id_archivo_pdf = b.id_archivo_pdf
     WHERE b.id_contenido = $1 ORDER BY b.orden
   `, [noticia.id_contenido]);
   const fotos = await query(`

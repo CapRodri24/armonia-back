@@ -15,6 +15,7 @@ const nosotrosPublicosRoutes = require("./src/routes/nosotrosPublicosRoutes");
 const recursosRoutes = require("./src/routes/recursosRoutes");
 const recursosPublicosRoutes = require("./src/routes/recursosPublicosRoutes");
 const dashboardRoutes = require("./src/routes/dashboardRoutes");
+const contenidoPublicoRoutes = require("./src/routes/contenidoPublicoRoutes");
 const app = express();
 // En desarrollo funciona sin .env del frontend. En producción configurar
 // FRONTEND_URL en el entorno del backend con el origen real de la web.
@@ -46,6 +47,7 @@ app.use("/api/nosotros", nosotrosPublicosRoutes);
 app.use("/api/admin/recursos", recursosRoutes);
 app.use("/api/recursos", recursosPublicosRoutes);
 app.use("/api/admin/dashboard", dashboardRoutes);
+app.use("/api/contenido", contenidoPublicoRoutes);
 
 app.use((err, req, res, next) => {
   console.error(err.stack || err);
