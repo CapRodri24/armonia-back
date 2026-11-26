@@ -22,10 +22,17 @@ const app = express();
 // En desarrollo funciona sin .env del frontend. En producción configurar
 // FRONTEND_URL en el entorno del backend con el origen real de la web.
 const allowedOrigins = ["http://localhost:8080", "https://armoniabo.netlify.app", "https://armoniabolivia.org", "https://www.armoniabolivia.org", ...(process.env.FRONTEND_URL ? [process.env.FRONTEND_URL.replace(/\/$/, "")] : [])];
+// Orígenes no autorizados: se responde sin cabeceras CORS (el navegador bloquea la
+// lectura) en vez de lanzar un error, que llenaba la consola de trazas y devolvía 500.
+const origenesAvisados = new Set();
 const corsOptions = {
   origin(origin, callback) {
     if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
-    return callback(new Error(`El origen ${origin} no tiene permiso de acceso.`));
+    if (!origenesAvisados.has(origin)) {
+      origenesAvisados.add(origin);
+      console.warn(`CORS: se ignoran las peticiones del origen ${origin} (no está en la lista permitida).`);
+    }
+    return callback(null, false);
   },
   credentials: true,
   methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
