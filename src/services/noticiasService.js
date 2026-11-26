@@ -102,7 +102,9 @@ function validarEntrada(data) {
   const fecha_publicacion = validarFecha(data.fecha_publicacion);
   const autor = texto(data.autor);
   if (autor.length > 200) throw new ErrorNoticia("El nombre del autor admite como máximo 200 caracteres.");
-  return { titulo_es, titulo_en, fecha_publicacion, autor, id_programa, id_categoria_noticia, bloques };
+  const fotos_por = texto(data.fotos_por);
+  if (fotos_por.length > 200) throw new ErrorNoticia("El campo «Fotos por» admite como máximo 200 caracteres.");
+  return { titulo_es, titulo_en, fecha_publicacion, autor, fotos_por, id_programa, id_categoria_noticia, bloques };
 }
 
 async function guardarImagen(client, imagen) {
@@ -178,7 +180,7 @@ async function obtener(id) {
            COALESCE(pc.titulo_es,'') AS programa_titulo_es,
            COALESCE(l.color,'#2381C4') AS color,
            c.id_contenido::text AS id_contenido, c.titulo_es, c.titulo_en,
-           to_char(c.fecha_publicacion, 'YYYY-MM-DD"T"HH24:MI:SS') AS fecha_publicacion, COALESCE(n.autor,'') AS autor FROM noticia n JOIN contenido_editorial c ON c.id_contenido=n.id_contenido
+           to_char(c.fecha_publicacion, 'YYYY-MM-DD"T"HH24:MI:SS') AS fecha_publicacion, COALESCE(n.autor,'') AS autor, COALESCE(n.fotos_por,'') AS fotos_por FROM noticia n JOIN contenido_editorial c ON c.id_contenido=n.id_contenido
     JOIN categoria_noticia cat ON cat.id_categoria_noticia=n.id_categoria_noticia
     LEFT JOIN programa p ON p.id_programa=n.id_programa
     LEFT JOIN contenido_editorial pc ON pc.id_contenido=p.id_contenido
@@ -241,8 +243,8 @@ async function crear(data) {
     );
     const idContenido = contenido.rows[0].id_contenido;
     const noticia = await client.query(
-      "INSERT INTO noticia (id_contenido,id_programa,id_categoria_noticia,autor) VALUES ($1,$2,$3,$4) RETURNING id_noticia::text AS id_noticia",
-      [idContenido, input.id_programa, input.id_categoria_noticia, input.autor || null]
+      "INSERT INTO noticia (id_contenido,id_programa,id_categoria_noticia,autor,fotos_por) VALUES ($1,$2,$3,$4,$5) RETURNING id_noticia::text AS id_noticia",
+      [idContenido, input.id_programa, input.id_categoria_noticia, input.autor || null, input.fotos_por || null]
     );
     await guardarBloques(client, idContenido, input.bloques);
     await client.query("COMMIT");
@@ -266,7 +268,7 @@ async function actualizar(id, data) {
       "UPDATE contenido_editorial SET titulo_es=$1,titulo_en=$2,fecha_publicacion=COALESCE($4::date + fecha_publicacion::time, fecha_publicacion) WHERE id_contenido=$3",
       [input.titulo_es, input.titulo_en, idContenido, input.fecha_publicacion]
     );
-    await client.query("UPDATE noticia SET id_programa=$1,id_categoria_noticia=$2,autor=$3 WHERE id_noticia=$4", [input.id_programa,input.id_categoria_noticia,input.autor || null,id]);
+    await client.query("UPDATE noticia SET id_programa=$1,id_categoria_noticia=$2,autor=$3,fotos_por=$4 WHERE id_noticia=$5", [input.id_programa,input.id_categoria_noticia,input.autor || null,input.fotos_por || null,id]);
     await client.query("DELETE FROM bloque_editorial WHERE id_contenido=$1", [idContenido]);
     await guardarBloques(client, idContenido, input.bloques);
     await client.query("COMMIT");

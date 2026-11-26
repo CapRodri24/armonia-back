@@ -45,7 +45,7 @@ async function obtener(id) {
     SELECT n.id_noticia::text AS id_noticia, n.id_programa::text AS id_programa,
            n.id_categoria_noticia, cat.nombre_es AS categoria_es,cat.nombre_en AS categoria_en,
            pc.titulo_es AS programa_titulo_es,pc.titulo_en AS programa_titulo_en,
-           c.titulo_es,c.titulo_en,to_char(c.fecha_publicacion,'YYYY-MM-DD"T"HH24:MI:SS') AS fecha_publicacion,c.id_contenido::text AS id_contenido,n.autor
+           c.titulo_es,c.titulo_en,to_char(c.fecha_publicacion,'YYYY-MM-DD"T"HH24:MI:SS') AS fecha_publicacion,c.id_contenido::text AS id_contenido,n.autor,n.fotos_por
     FROM noticia n JOIN contenido_editorial c ON c.id_contenido=n.id_contenido
     JOIN categoria_noticia cat ON cat.id_categoria_noticia=n.id_categoria_noticia
     LEFT JOIN programa pr ON pr.id_programa=n.id_programa
